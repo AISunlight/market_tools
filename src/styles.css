@@ -406,12 +406,42 @@ button:disabled {
   top: 0;
   z-index: 2;
   height: 34px;
+  padding-right: 18px;
   background: #eef2f6;
   border-bottom: 1px solid var(--line-strong);
   border-right: 1px solid var(--line);
   color: #344052;
   text-align: left;
   font-weight: 800;
+}
+
+.sheet thead th span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet thead th.resizing {
+  background: #dfe8f2;
+}
+
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.col-resizer:hover,
+.sheet thead th.resizing .col-resizer {
+  background: rgba(23, 105, 170, 0.22);
 }
 
 .sheet th,

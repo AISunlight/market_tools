@@ -127,6 +127,7 @@ export function mountYahooStockApp(container, context) {
     visibleFields: localState?.visibleFields || loadVisibleFields(),
     bulkInput: localState?.bulkInput || "TSLA\nNVDA\nAAPL",
     history: normalizeHistory(localState?.history),
+    columnWidths: localState?.columnWidths || {},
     saveTimer: null,
     loadedRemoteState: false,
     highlightSymbols: new Set()
@@ -229,10 +230,49 @@ export function mountYahooStockApp(container, context) {
       ...visibleColumns().map((key) => {
         const label = key === "symbol" ? "Symbol" : key === "status" ? "Status" : key === "note" ? "Note" : fieldByKey[key]?.label || key;
         const className = key === "symbol" ? "symbol" : key === "status" ? "status" : key === "note" ? "note" : fieldByKey[key]?.className || "";
-        return `<th class="${className}">${label}</th>`;
+        const width = state.columnWidths[key] || defaultColumnWidth(key, label);
+        return `<th class="${className}" data-key="${key}" style="width:${width}px;min-width:${width}px"><span>${label}</span><button class="col-resizer" type="button" aria-label="调整 ${label} 列宽"></button></th>`;
       })
     ].join("");
     thead.innerHTML = `<tr>${ths}</tr>`;
+    bindColumnResizers();
+  }
+
+  function bindColumnResizers() {
+    thead.querySelectorAll(".col-resizer").forEach((handle) => {
+      handle.addEventListener("pointerdown", (event) => {
+        const th = event.currentTarget.closest("th");
+        const key = th.dataset.key;
+        const startX = event.clientX;
+        const startWidth = th.getBoundingClientRect().width;
+        th.classList.add("resizing");
+        handle.setPointerCapture(event.pointerId);
+
+        const move = (moveEvent) => {
+          const width = Math.max(72, Math.round(startWidth + moveEvent.clientX - startX));
+          state.columnWidths[key] = width;
+          applyColumnWidth(key, width);
+        };
+        const up = () => {
+          th.classList.remove("resizing");
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          handle.removeEventListener("pointercancel", up);
+          schedulePersist();
+        };
+
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
+      });
+    });
+  }
+
+  function applyColumnWidth(key, width) {
+    container.querySelectorAll(`[data-key="${key}"]`).forEach((cell) => {
+      cell.style.width = `${width}px`;
+      cell.style.minWidth = `${width}px`;
+    });
   }
 
   function renderRows() {
@@ -253,6 +293,10 @@ export function mountYahooStockApp(container, context) {
         td.dataset.row = rowIndex;
         td.dataset.key = key;
         td.className = classForColumn(key, row);
+        const label = key === "symbol" ? "Symbol" : key === "status" ? "Status" : key === "note" ? "Note" : fieldByKey[key]?.label || key;
+        const width = state.columnWidths[key] || defaultColumnWidth(key, label);
+        td.style.width = `${width}px`;
+        td.style.minWidth = `${width}px`;
         td.textContent = displayValue(row, key);
         if (key === "symbol") {
           td.contentEditable = "true";
@@ -603,6 +647,9 @@ export function mountYahooStockApp(container, context) {
         }
       }
       state.history = normalizeHistory(persisted.history);
+      if (persisted.columnWidths && typeof persisted.columnWidths === "object") {
+        state.columnWidths = normalizeColumnWidths(persisted.columnWidths);
+      }
       state.highlightSymbols = new Set();
       state.loadedRemoteState = true;
       renderFieldPanel();
@@ -627,7 +674,8 @@ export function mountYahooStockApp(container, context) {
       rows: state.rows,
       visibleFields: state.visibleFields,
       bulkInput: state.bulkInput,
-      history: state.history
+      history: state.history,
+      columnWidths: state.columnWidths
     };
 
     localStorage.setItem(STATE_STORAGE_KEY, JSON.stringify(payload));
@@ -727,6 +775,26 @@ function normalizeHistory(history) {
     }));
 }
 
+function normalizeColumnWidths(widths) {
+  if (!widths || typeof widths !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(widths)
+      .filter(([key, value]) => (key === "symbol" || key === "status" || key === "note" || fieldByKey[key]) && Number.isFinite(Number(value)))
+      .map(([key, value]) => [key, Math.max(72, Math.min(420, Math.round(Number(value))))])
+  );
+}
+
+function defaultColumnWidth(key, label) {
+  const titleWidth = String(label).length * 8 + 34;
+  if (key === "symbol") return Math.max(116, titleWidth);
+  if (key === "name") return Math.max(220, titleWidth);
+  if (key === "sector" || key === "industry") return Math.max(180, titleWidth);
+  if (key === "status") return Math.max(130, titleWidth);
+  if (key === "note") return Math.max(260, titleWidth);
+  if (fieldByKey[key]?.type === "text") return Math.max(128, titleWidth);
+  return Math.max(118, titleWidth);
+}
+
 function trimTrailingBlankRows(rows) {
   while (rows.length && !rows[rows.length - 1].symbol) {
     rows.pop();
@@ -749,7 +817,8 @@ function loadLocalState() {
       rows: Array.isArray(saved.rows) ? normalizeRows(saved.rows) : null,
       visibleFields: Array.isArray(saved.visibleFields) ? ensureFinancialHighlights(saved.visibleFields.filter((key) => fieldByKey[key])) : null,
       bulkInput: typeof saved.bulkInput === "string" ? saved.bulkInput : null,
-      history: normalizeHistory(saved.history)
+      history: normalizeHistory(saved.history),
+      columnWidths: normalizeColumnWidths(saved.columnWidths)
     };
   } catch {
     return null;
