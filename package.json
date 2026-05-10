@@ -1,0 +1,24 @@
+{
+  "name": "market-tools-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:icon": "tauri icon src-tauri/icons/source.png",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "legacy:start": "node server.js",
+    "legacy:start:proxy": "set YAHOO_PROXY_URL=http://127.0.0.1:7897&& node server.js"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "vite": "^7.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

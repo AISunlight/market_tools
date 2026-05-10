@@ -1,0 +1,8 @@
+[registries.crates-io]
+protocol = "sparse"
+
+[net]
+git-fetch-with-cli = true
+
+[http]
+proxy = "http://127.0.0.1:7897"
