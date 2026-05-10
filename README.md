@@ -50,6 +50,15 @@ npm -v
 npx tauri info
 ```
 
+如果你本机需要通过 Clash 下载 Rust 依赖，不要把代理写进仓库配置。可以在当前终端临时设置：
+
+```powershell
+$env:HTTPS_PROXY="http://127.0.0.1:7897"
+$env:HTTP_PROXY="http://127.0.0.1:7897"
+```
+
+GitHub Actions 环境不需要这个代理。
+
 ## 安装
 
 ```powershell
