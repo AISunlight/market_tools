@@ -1,3 +1,5 @@
+import { listen } from "@tauri-apps/api/event";
+
 const FIELD_STORAGE_KEY = "market-tools.yahoo-stock.visible-fields";
 const STATE_STORAGE_KEY = "market-tools.yahoo-stock.state";
 const APP_STATE_ID = "yahoo-stock";
@@ -447,41 +449,31 @@ export function mountYahooStockApp(container, context) {
 
   async function fetchSymbolsConcurrent(symbols, forceRefresh) {
     const concurrency = clampNumber(Number(context.settings?.concurrency || 4), 1, 20);
-    const results = [];
-    let nextIndex = 0;
-    let completed = 0;
+    const requestId = `stock-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const unlisten = context.backendReady
+      ? await listen("stock-query-progress", (event) => {
+          const progress = event.payload || {};
+          if (progress.requestId !== requestId) return;
+          const labelSymbol = progress.symbol ? `${progress.symbol} ` : "";
+          setProgress(
+            progress.done || 0,
+            progress.total || symbols.length,
+            `${labelSymbol}${progress.status || "完成"} · 并发 ${progress.concurrency || concurrency}`
+          );
+        })
+      : null;
 
-    async function worker() {
-      while (nextIndex < symbols.length) {
-        const symbol = symbols[nextIndex];
-        nextIndex += 1;
-        setProgress(completed, symbols.length, `正在查询 ${symbol} · 并发 ${concurrency}`);
-        try {
-          const data = await context.invoke("fetch_stock_batch", { symbols: [symbol], refresh: forceRefresh });
-          const result = data.results[0];
-          if (result) {
-            results.push(result);
-            applyResult(result);
-          }
-        } catch (error) {
-          const result = {
-            symbol,
-            status: "error",
-            error: error.message || String(error)
-          };
-          results.push(result);
-          applyResult(result);
-        } finally {
-          completed += 1;
-          renderRows();
-          setProgress(completed, symbols.length, `${symbol} 完成 · 并发 ${concurrency}`);
-        }
-      }
+    try {
+      setProgress(0, symbols.length, `批量查询已提交 · 并发 ${concurrency}`);
+      const data = await context.invoke("fetch_stock_batch", { symbols, refresh: forceRefresh, requestId });
+      const results = data.results || [];
+      results.forEach(applyResult);
+      renderRows();
+      setProgress(results.length, symbols.length, `查询完成 · 并发 ${concurrency}`);
+      return results;
+    } finally {
+      if (unlisten) unlisten();
     }
-
-    const workerCount = Math.min(concurrency, symbols.length);
-    await Promise.all(Array.from({ length: workerCount }, worker));
-    return results;
   }
 
   function setProgress(done, total, label) {

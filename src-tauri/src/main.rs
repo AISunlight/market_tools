@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -143,10 +143,28 @@ struct BatchResult {
     cache_ttl_hours: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct YahooSession {
     cookie: String,
     crumb: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StockProgress {
+    request_id: String,
+    symbol: String,
+    done: usize,
+    total: usize,
+    status: String,
+    concurrency: usize,
+}
+
+#[derive(Debug)]
+struct FetchOutcome {
+    index: usize,
+    symbol: String,
+    fetched: Result<StockData, String>,
 }
 
 #[tauri::command]
@@ -161,13 +179,12 @@ fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, S
 }
 
 #[tauri::command]
-async fn fetch_stock_batch(app: AppHandle, symbols: Vec<String>, refresh: bool) -> Result<BatchResult, String> {
+async fn fetch_stock_batch(app: AppHandle, symbols: Vec<String>, refresh: bool, request_id: Option<String>) -> Result<BatchResult, String> {
     let settings = read_settings(&app);
     let mut cache = read_cache(&app)?;
     let client = build_client(&settings)?;
     let ttl_ms = settings.cache_ttl_hours.max(1) * 60 * 60 * 1000;
-    let mut session: Option<YahooSession> = None;
-    let mut results = Vec::new();
+    let request_id = request_id.unwrap_or_default();
 
     let mut unique = Vec::new();
     for symbol in symbols {
@@ -180,26 +197,103 @@ async fn fetch_stock_batch(app: AppHandle, symbols: Vec<String>, refresh: bool) 
         }
     }
 
-    for symbol in unique {
-        let result = get_stock_cached(
-            &client,
-            &settings,
-            &mut cache,
-            &mut session,
-            symbol,
-            refresh,
-            ttl_ms,
-        )
-        .await;
-        results.push(result);
+    let total = unique.len();
+    let concurrency = settings.concurrency.clamp(1, 20).min(total.max(1) as u64) as usize;
+    let now = now_ms();
+    let mut results: Vec<Option<StockResult>> = vec![None; total];
+    let mut misses: Vec<(usize, String)> = Vec::new();
+    let mut completed = 0;
+
+    for (index, symbol) in unique.into_iter().enumerate() {
+        if !is_valid_symbol(&symbol) {
+            results[index] = Some(error_result(symbol, "股票代码格式不正确。".to_string(), &settings));
+            completed += 1;
+            emit_progress(&app, &request_id, "", completed, total, "error", concurrency);
+            continue;
+        }
+
+        if !refresh {
+            if let Some(entry) = cache.get(&symbol) {
+                if now.saturating_sub(entry.cached_at) < ttl_ms {
+                    results[index] = Some(ok_result(symbol.clone(), entry.data.clone(), "hit", Some(entry.cached_at), None));
+                    completed += 1;
+                    emit_progress(&app, &request_id, &symbol, completed, total, "cache", concurrency);
+                    continue;
+                }
+            }
+        }
+
+        misses.push((index, symbol));
     }
 
+    if !misses.is_empty() {
+        let session = get_yahoo_session(&client).await?;
+
+        for chunk in misses.chunks(concurrency) {
+            let mut handles = Vec::with_capacity(chunk.len());
+            for (index, symbol) in chunk.iter().cloned() {
+                let client = client.clone();
+                let session = session.clone();
+                handles.push(tokio::spawn(async move {
+                    let fetched = fetch_stock_meta(&client, &session, &symbol).await;
+                    FetchOutcome { index, symbol, fetched }
+                }));
+            }
+
+            for handle in handles {
+                let outcome = handle.await.map_err(|error| error.to_string())?;
+                let result = match outcome.fetched {
+                    Ok(data) => {
+                        cache.insert(
+                            outcome.symbol.clone(),
+                            CacheEntry {
+                                cached_at: now,
+                                data: data.clone(),
+                            },
+                        );
+                        ok_result(outcome.symbol.clone(), data, "miss", Some(now), None)
+                    }
+                    Err(error) => {
+                        if let Some(entry) = cache.get(&outcome.symbol) {
+                            ok_result(outcome.symbol.clone(), entry.data.clone(), "stale", Some(entry.cached_at), Some(error))
+                        } else {
+                            error_result(outcome.symbol.clone(), error, &settings)
+                        }
+                    }
+                };
+                let status = result.status.clone();
+                results[outcome.index] = Some(result);
+                completed += 1;
+                emit_progress(&app, &request_id, &outcome.symbol, completed, total, &status, concurrency);
+            }
+        }
+    }
+
+    let results = results.into_iter().flatten().collect::<Vec<_>>();
     write_json(cache_path(&app)?, &cache)?;
     Ok(BatchResult {
         count: results.len(),
         results,
         cache_ttl_hours: settings.cache_ttl_hours,
     })
+}
+
+fn emit_progress(app: &AppHandle, request_id: &str, symbol: &str, done: usize, total: usize, status: &str, concurrency: usize) {
+    if request_id.is_empty() {
+        return;
+    }
+
+    let _ = app.emit(
+        "stock-query-progress",
+        StockProgress {
+            request_id: request_id.to_string(),
+            symbol: symbol.to_string(),
+            done,
+            total,
+            status: status.to_string(),
+            concurrency,
+        },
+    );
 }
 
 #[tauri::command]
@@ -223,65 +317,18 @@ fn save_app_state(app: AppHandle, app_id: String, state: Value) -> Result<(), St
     write_json(path, &state)
 }
 
-async fn get_stock_cached(
-    client: &Client,
-    settings: &AppSettings,
-    cache: &mut HashMap<String, CacheEntry>,
-    session: &mut Option<YahooSession>,
-    symbol: String,
-    refresh: bool,
-    ttl_ms: u64,
-) -> StockResult {
-    if !is_valid_symbol(&symbol) {
-        return error_result(symbol, "股票代码格式不正确。".to_string(), settings);
-    }
-
-    let now = now_ms();
-    if !refresh {
-        if let Some(entry) = cache.get(&symbol) {
-            if now.saturating_sub(entry.cached_at) < ttl_ms {
-                return ok_result(symbol, entry.data.clone(), "hit", Some(entry.cached_at), None);
-            }
-        }
-    }
-
-    match fetch_stock_meta(client, session, &symbol).await {
-        Ok(data) => {
-            cache.insert(
-                symbol.clone(),
-                CacheEntry {
-                    cached_at: now,
-                    data: data.clone(),
-                },
-            );
-            ok_result(symbol, data, "miss", Some(now), None)
-        }
-        Err(error) => {
-            if let Some(entry) = cache.get(&symbol) {
-                ok_result(symbol, entry.data.clone(), "stale", Some(entry.cached_at), Some(error))
-            } else {
-                error_result(symbol, error, settings)
-            }
-        }
-    }
-}
-
-async fn fetch_stock_meta(client: &Client, session: &mut Option<YahooSession>, symbol: &str) -> Result<StockData, String> {
-    if session.is_none() {
-        *session = Some(get_yahoo_session(client).await?);
-    }
-    let session_ref = session.as_ref().ok_or("Yahoo session 初始化失败。")?;
+async fn fetch_stock_meta(client: &Client, session: &YahooSession, symbol: &str) -> Result<StockData, String> {
     let modules = "assetProfile,summaryDetail,defaultKeyStatistics,financialData,price";
     let summary_url = format!(
         "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{}?modules={}&crumb={}",
         urlencoding::encode(symbol),
         modules,
-        urlencoding::encode(&session_ref.crumb)
+        urlencoding::encode(&session.crumb)
     );
 
     let summary: Value = client
         .get(summary_url)
-        .header("Cookie", &session_ref.cookie)
+        .header("Cookie", &session.cookie)
         .send()
         .await
         .map_err(|error| error.to_string())?
