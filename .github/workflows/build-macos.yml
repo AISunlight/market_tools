@@ -53,7 +53,7 @@ jobs:
         run: npm run tauri:icon
 
       - name: Build and publish with Tauri Action
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -64,6 +64,4 @@ jobs:
           releaseDraft: false
           prerelease: true
           args: --target ${{ matrix.target }}
-          releaseAssetNamePattern: Market-Tools-${{ matrix.arch }}-[bundle].[ext]
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: market-tools-macos-${{ matrix.arch }}-[bundle]
+          assetNamePattern: Market-Tools-${{ matrix.arch }}-[name]_[version]_[platform]_[arch].[ext]
