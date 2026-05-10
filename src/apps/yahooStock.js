@@ -57,6 +57,15 @@ const fieldGroups = [
   {
     name: "财务质量",
     fields: [
+      { key: "profitMargins", label: "Profit Margin", className: "num", type: "percent" },
+      { key: "returnOnAssets", label: "Return on Assets", className: "num", type: "percent" },
+      { key: "returnOnEquity", label: "Return on Equity", className: "num", type: "percent" },
+      { key: "totalRevenue", label: "Revenue (ttm)", className: "num", type: "largeNumber" },
+      { key: "netIncomeToCommon", label: "Net Income Common", className: "num", type: "largeNumber" },
+      { key: "trailingEps", label: "Diluted EPS (ttm)", className: "num", type: "number" },
+      { key: "totalCash", label: "Total Cash", className: "num", type: "largeNumber" },
+      { key: "totalDebt", label: "Total Debt", className: "num", type: "largeNumber" },
+      { key: "leveredFreeCashFlow", label: "Levered FCF", className: "num", type: "largeNumber" },
       { key: "debtToEquity", label: "Debt/Equity", className: "num", type: "number" },
       { key: "revenueGrowth", label: "Revenue Growth", className: "num", type: "percent" },
       { key: "grossMargins", label: "Gross Margin", className: "num", type: "percent" },
@@ -78,7 +87,27 @@ const defaultVisibleFields = [
   "shortInterest",
   "marketCap",
   "volume",
-  "previousClose"
+  "previousClose",
+  "profitMargins",
+  "returnOnAssets",
+  "returnOnEquity",
+  "totalRevenue",
+  "netIncomeToCommon",
+  "trailingEps",
+  "totalCash",
+  "totalDebt",
+  "leveredFreeCashFlow"
+];
+const financialHighlightFields = [
+  "profitMargins",
+  "returnOnAssets",
+  "returnOnEquity",
+  "totalRevenue",
+  "netIncomeToCommon",
+  "trailingEps",
+  "totalCash",
+  "totalDebt",
+  "leveredFreeCashFlow"
 ];
 
 const decimal = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
@@ -569,8 +598,8 @@ export function mountYahooStockApp(container, context) {
       if (Array.isArray(persisted.visibleFields)) {
         const valid = persisted.visibleFields.filter((key) => fieldByKey[key]);
         if (valid.length) {
-          state.visibleFields = valid;
-          saveVisibleFields(valid);
+          state.visibleFields = ensureFinancialHighlights(valid);
+          saveVisibleFields(state.visibleFields);
         }
       }
       state.history = normalizeHistory(persisted.history);
@@ -654,6 +683,15 @@ function blankRow(symbol = "") {
     revenueGrowth: null,
     grossMargins: null,
     operatingMargins: null,
+    profitMargins: null,
+    returnOnAssets: null,
+    returnOnEquity: null,
+    totalRevenue: null,
+    netIncomeToCommon: null,
+    trailingEps: null,
+    totalCash: null,
+    totalDebt: null,
+    leveredFreeCashFlow: null,
     status: "",
     note: ""
   };
@@ -709,7 +747,7 @@ function loadLocalState() {
     if (!saved || typeof saved !== "object") return null;
     return {
       rows: Array.isArray(saved.rows) ? normalizeRows(saved.rows) : null,
-      visibleFields: Array.isArray(saved.visibleFields) ? saved.visibleFields.filter((key) => fieldByKey[key]) : null,
+      visibleFields: Array.isArray(saved.visibleFields) ? ensureFinancialHighlights(saved.visibleFields.filter((key) => fieldByKey[key])) : null,
       bulkInput: typeof saved.bulkInput === "string" ? saved.bulkInput : null,
       history: normalizeHistory(saved.history)
     };
@@ -723,7 +761,7 @@ function loadVisibleFields() {
     const saved = JSON.parse(localStorage.getItem(FIELD_STORAGE_KEY) || "null");
     if (Array.isArray(saved)) {
       const valid = saved.filter((key) => fieldByKey[key]);
-      if (valid.length) return valid;
+      if (valid.length) return ensureFinancialHighlights(valid);
     }
   } catch {
     // Ignore invalid user configuration.
@@ -733,6 +771,14 @@ function loadVisibleFields() {
 
 function saveVisibleFields(fields) {
   localStorage.setItem(FIELD_STORAGE_KEY, JSON.stringify(fields));
+}
+
+function ensureFinancialHighlights(fields) {
+  const next = [...fields];
+  financialHighlightFields.forEach((key) => {
+    if (!next.includes(key)) next.push(key);
+  });
+  return next;
 }
 
 function escapeHtml(value) {
@@ -763,6 +809,7 @@ function displayValue(row, key) {
   if (!field) return row[key] ?? "";
   if (field.type === "percent") return fmtPercent(row[key]);
   if (field.type === "currency") return fmtCurrency(row[key]);
+  if (field.type === "largeNumber") return fmtLargeNumber(row[key]);
   if (field.type === "integer") return fmtInteger(row[key]);
   if (field.type === "number") return fmtNumber(row[key]);
   return row[key] ?? "";
@@ -788,6 +835,10 @@ function fmtPercent(value) {
 
 function fmtCurrency(value) {
   return Number.isFinite(value) ? compactCurrency.format(value) : "";
+}
+
+function fmtLargeNumber(value) {
+  return Number.isFinite(value) ? compactCurrency.format(value).replace("$", "") : "";
 }
 
 function csvEscape(value) {
