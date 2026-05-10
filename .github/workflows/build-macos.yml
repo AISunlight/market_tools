@@ -18,6 +18,8 @@ jobs:
   build-macos:
     name: Build macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -50,56 +52,18 @@ jobs:
       - name: Generate Tauri icons
         run: npm run tauri:icon
 
-      - name: Build macOS app
-        run: npm run tauri:build -- --target ${{ matrix.target }}
-
-      - name: Prepare release assets
-        shell: bash
-        run: |
-          mkdir -p release-assets
-          APP_PATH="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -type d | head -n 1)"
-          if [ -n "$APP_PATH" ]; then
-            ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "release-assets/Market-Tools-${{ matrix.arch }}.app.zip"
-          fi
-          find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -type f -exec cp {} "release-assets/Market-Tools-${{ matrix.arch }}.dmg" \;
-
-      - name: Upload app artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: market-tools-macos-${{ matrix.arch }}-app
-          path: release-assets/Market-Tools-${{ matrix.arch }}.app.zip
-
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: market-tools-macos-${{ matrix.arch }}-dmg
-          path: release-assets/Market-Tools-${{ matrix.arch }}.dmg
-
-  publish-release:
-    name: Publish release assets
-    needs: build-macos
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-
-      - name: Flatten assets
-        run: |
-          mkdir -p upload
-          find release-assets -type f \( -name '*.dmg' -o -name '*.zip' \) -exec cp {} upload/ \;
-          ls -la upload
-
-      - name: Create GitHub release
+      - name: Build and publish with Tauri Action
+        uses: tauri-apps/tauri-action@v1
         env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: build-${{ github.run_number }}
-          RELEASE_NAME: Build ${{ github.run_number }} · ${{ github.ref_name }} · ${{ github.sha }}
-        run: |
-          gh release create "$TAG_NAME" upload/* \
-            --target "${{ github.sha }}" \
-            --title "$RELEASE_NAME" \
-            --notes "Automated macOS build for branch \`${{ github.ref_name }}\` at commit \`${{ github.sha }}\`." \
-            --prerelease
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: build-${{ github.run_number }}
+          releaseName: Build ${{ github.run_number }} · ${{ github.ref_name }}
+          releaseBody: Automated macOS build for branch `${{ github.ref_name }}` at commit `${{ github.sha }}`.
+          releaseCommitish: ${{ github.sha }}
+          releaseDraft: false
+          prerelease: true
+          args: --target ${{ matrix.target }}
+          releaseAssetNamePattern: Market-Tools-${{ matrix.arch }}-[bundle].[ext]
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: market-tools-macos-${{ matrix.arch }}-[bundle]
