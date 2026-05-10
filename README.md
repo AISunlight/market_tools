@@ -105,19 +105,27 @@ macOS 的 `.app` / `.dmg` 需要在 macOS 系统上构建。Windows 不能直接
 .github/workflows/build-macos.yml
 ```
 
-使用方式：
+触发方式：
 
-1. 将项目推送到 GitHub 仓库
-2. 打开仓库的 Actions 页面
-3. 选择 `Build macOS package`
-4. 点击 `Run workflow`
-5. 构建完成后，在 Artifacts 中下载对应芯片版本：
-   - Apple Silicon / ARM64：
-     - `market-tools-macos-arm64-app`
-     - `market-tools-macos-arm64-dmg`
-   - Intel / x64：
-     - `market-tools-macos-intel-app`
-     - `market-tools-macos-intel-dmg`
+- 推送任意分支会自动触发构建
+- 也可以在 Actions 页面手动运行 `Build macOS package`
+
+构建完成后，GitHub Releases 会自动创建一个预发布版本，名称类似：
+
+```text
+Build 12 · main · <commit-sha>
+```
+
+Release 中会包含四个下载文件：
+
+- Apple Silicon / ARM64：
+  - `Market-Tools-arm64.dmg`
+  - `Market-Tools-arm64.app.zip`
+- Intel / x64：
+  - `Market-Tools-intel.dmg`
+  - `Market-Tools-intel.app.zip`
+
+Actions Artifacts 中也会保留同样的构建结果。
 
 本地如果在 macOS 上构建：
 
