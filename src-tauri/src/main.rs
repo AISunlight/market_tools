@@ -192,9 +192,6 @@ async fn fetch_stock_batch(app: AppHandle, symbols: Vec<String>, refresh: bool, 
         if !clean.is_empty() && !unique.contains(&clean) {
             unique.push(clean);
         }
-        if unique.len() >= 200 {
-            break;
-        }
     }
 
     let total = unique.len();
