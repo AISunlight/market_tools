@@ -34,6 +34,11 @@ export function createSettingsView(container, { settings, backendReady, onSave }
           <input id="cacheTtlHours" name="cacheTtlHours" type="number" min="1" max="168" step="1" value="${settings.cacheTtlHours || 12}" />
         </div>
 
+        <div class="field">
+          <label for="concurrency">Yahoo 查询并发数量</label>
+          <input id="concurrency" name="concurrency" type="number" min="1" max="20" step="1" value="${settings.concurrency || 4}" />
+        </div>
+
         <div class="settings-foot">
           <button class="primary" type="submit">保存设置</button>
           <span id="settingsStatus">${backendReady ? "桌面后端已连接" : "浏览器预览模式"}</span>
@@ -59,7 +64,8 @@ export function createSettingsView(container, { settings, backendReady, onSave }
     const nextSettings = {
       networkMode: form.networkMode.value,
       proxyUrl: form.proxyUrl.value.trim(),
-      cacheTtlHours: Number(form.cacheTtlHours.value || 12)
+      cacheTtlHours: Number(form.cacheTtlHours.value || 12),
+      concurrency: clampNumber(Number(form.concurrency.value || 4), 1, 20)
     };
 
     status.textContent = "保存中...";
@@ -72,6 +78,11 @@ export function createSettingsView(container, { settings, backendReady, onSave }
       status.className = "error";
     }
   });
+}
+
+function clampNumber(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 
 function escapeAttr(value) {

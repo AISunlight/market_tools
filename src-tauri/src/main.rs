@@ -16,6 +16,7 @@ struct AppSettings {
     network_mode: String,
     proxy_url: String,
     cache_ttl_hours: u64,
+    concurrency: u64,
 }
 
 impl Default for AppSettings {
@@ -24,6 +25,7 @@ impl Default for AppSettings {
             network_mode: "proxy".to_string(),
             proxy_url: "http://127.0.0.1:7897".to_string(),
             cache_ttl_hours: 12,
+            concurrency: 4,
         }
     }
 }

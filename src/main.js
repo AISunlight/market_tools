@@ -6,7 +6,8 @@ import { createSettingsView } from "./settings.js";
 const DEFAULT_SETTINGS = {
   networkMode: "proxy",
   proxyUrl: "http://127.0.0.1:7897",
-  cacheTtlHours: 12
+  cacheTtlHours: 12,
+  concurrency: 4
 };
 
 const state = {

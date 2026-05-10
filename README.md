@@ -153,6 +153,7 @@ src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/
 - **系统代理**：使用系统网络配置
 - **直连**：不使用代理
 - **缓存有效期**：默认 12 小时
+- **Yahoo 查询并发数量**：默认 4，可在 1 到 20 之间调整
 
 如果你使用 Clash，请确认 Yahoo 相关域名会走代理节点：
 

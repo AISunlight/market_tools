@@ -349,19 +349,7 @@ export function mountYahooStockApp(container, context) {
     setProgress(0, symbols.length, "准备开始");
 
     try {
-      const results = [];
-      for (let index = 0; index < symbols.length; index += 1) {
-        const symbol = symbols[index];
-        setProgress(index, symbols.length, `正在查询 ${symbol}`);
-        const data = await context.invoke("fetch_stock_batch", { symbols: [symbol], refresh: forceRefresh });
-        const result = data.results[0];
-        if (result) {
-          results.push(result);
-          applyResult(result);
-          renderRows();
-        }
-        setProgress(index + 1, symbols.length, `${symbol} 完成`);
-      }
+      const results = await fetchSymbolsConcurrent(symbols, forceRefresh);
       schedulePersist();
       renderRows();
       const ok = results.filter((item) => item.status === "ok").length;
@@ -382,6 +370,45 @@ export function mountYahooStockApp(container, context) {
         progressWrap.hidden = true;
       }, 1200);
     }
+  }
+
+  async function fetchSymbolsConcurrent(symbols, forceRefresh) {
+    const concurrency = clampNumber(Number(context.settings?.concurrency || 4), 1, 20);
+    const results = [];
+    let nextIndex = 0;
+    let completed = 0;
+
+    async function worker() {
+      while (nextIndex < symbols.length) {
+        const symbol = symbols[nextIndex];
+        nextIndex += 1;
+        setProgress(completed, symbols.length, `正在查询 ${symbol} · 并发 ${concurrency}`);
+        try {
+          const data = await context.invoke("fetch_stock_batch", { symbols: [symbol], refresh: forceRefresh });
+          const result = data.results[0];
+          if (result) {
+            results.push(result);
+            applyResult(result);
+          }
+        } catch (error) {
+          const result = {
+            symbol,
+            status: "error",
+            error: error.message || String(error)
+          };
+          results.push(result);
+          applyResult(result);
+        } finally {
+          completed += 1;
+          renderRows();
+          setProgress(completed, symbols.length, `${symbol} 完成 · 并发 ${concurrency}`);
+        }
+      }
+    }
+
+    const workerCount = Math.min(concurrency, symbols.length);
+    await Promise.all(Array.from({ length: workerCount }, worker));
+    return results;
   }
 
   function setProgress(done, total, label) {
@@ -767,4 +794,9 @@ function csvEscape(value) {
   const text = String(value ?? "");
   if (/[",\r\n]/.test(text)) return `"${text.replaceAll("\"", "\"\"")}"`;
   return text;
+}
+
+function clampNumber(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
